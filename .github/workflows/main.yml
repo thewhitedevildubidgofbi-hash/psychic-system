@@ -40,3 +40,6 @@ jobs:
           echo "Web UI (NoVNC): http://${{ env.TS_IP }}:8006"
           echo "RDP Client:     ${{ env.TS_IP }}:3389"
           echo "=========================================="
+
+      - name: Suspend Lifecycle (Keep-Alive)
+        run: sleep 21600
