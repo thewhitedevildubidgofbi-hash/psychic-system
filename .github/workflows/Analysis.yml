@@ -2,6 +2,19 @@ name: Deploy Unrestricted Analysis Lab
 
 on:
   workflow_dispatch:
+    inputs:
+      lab_duration_hours:
+        description: 'Select lab operational duration (Hours)'
+        required: true
+        default: '2'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+          - '5'
+          - '6' # Maximum limit for standard GitHub Actions jobs
 
 jobs:
   run-lab:
@@ -29,3 +42,13 @@ jobs:
       - name: Execute Lab Initialization
         run: |
           docker exec -d lab-node /root/start-lab.sh
+
+      - name: Enforce Variable Runtime Hold
+        run: |
+          HOURS=${{ github.event.inputs.lab_duration_hours }}
+          SECONDS=$(( HOURS * 3600 ))
+          echo "Lab initialized successfully."
+          echo "Holding environment active for ${HOURS} hour(s) (${SECONDS} seconds)..."
+          
+          # Keeps the runner alive by executing a blocking loop
+          sleep $SECONDS
