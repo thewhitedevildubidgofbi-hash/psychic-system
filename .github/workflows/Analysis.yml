@@ -1,0 +1,31 @@
+name: Deploy Unrestricted Analysis Lab
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-lab:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Docker Hub
+        run: |
+          echo "${{ secrets.DOCKER_TOKEN }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Initialize Unrestricted Container
+        run: |
+          docker run -d \
+            --name lab-node \
+            --privileged \
+            --network host \
+            --pid host \
+            --ipc host \
+            -v /:/host_root \
+            -v "${{ github.workspace }}:/root/projects" \
+            naitikgupta2009/ultimate-idx-lab:v1 sleep infinity
+
+      - name: Execute Lab Initialization
+        run: |
+          docker exec -d lab-node /root/start-lab.sh
