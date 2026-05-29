@@ -14,7 +14,7 @@ on:
           - '3'
           - '4'
           - '5'
-          - '6' # Maximum limit for standard GitHub Actions jobs
+          - '6'
 
 jobs:
   run-lab:
@@ -43,12 +43,40 @@ jobs:
         run: |
           docker exec -d lab-node /root/start-lab.sh
 
-      - name: Enforce Variable Runtime Hold
+      - name: Monitor Termination Signal
         run: |
           HOURS=${{ github.event.inputs.lab_duration_hours }}
-          SECONDS=$(( HOURS * 3600 ))
-          echo "Lab initialized successfully."
-          echo "Holding environment active for ${HOURS} hour(s) (${SECONDS} seconds)..."
+          MAX_SECONDS=$(( HOURS * 3600 ))
+          ELAPSED=0
+          POLL_INTERVAL=300
           
-          # Keeps the runner alive by executing a blocking loop
-          sleep $SECONDS
+          echo "Initiating telemetry loop. Maximum duration: ${MAX_SECONDS}s."
+          echo "Polling for /root/desktop/close.txt every 300s."
+          
+          while [ $ELAPSED -lt $MAX_SECONDS ]; do
+            if docker exec lab-node test -f /root/desktop/close.txt; then
+              echo "Termination signal located. Exiting loop."
+              break
+            fi
+            sleep $POLL_INTERVAL
+            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+          done
+          
+          if [ $ELAPSED -ge $MAX_SECONDS ]; do
+            echo "Maximum execution time reached. Initiating fallback termination."
+          fi
+
+      - name: Graceful Shutdown and Persistence
+        if: always()
+        run: |
+          echo "Ingesting workspace data to persistence layer..."
+          docker exec lab-node cp -r /root/projects /root/persisted-projects || true
+          
+          echo "Initiating graceful container shutdown (30s timeout)..."
+          docker stop -t 30 lab-node || true
+          
+          echo "Committing filesystem snapshot..."
+          docker commit lab-node naitikgupta2009/ultimate-idx-lab:v1
+          
+          echo "Uploading image to registry..."
+          docker push naitikgupta2009/ultimate-idx-lab:v1
