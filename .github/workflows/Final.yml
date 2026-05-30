@@ -1,0 +1,146 @@
+name: Deploy Kali Linux Analysis Lab
+
+on:
+  workflow_dispatch:
+    inputs:
+      lab_duration_hours:
+        description: 'Select lab operational duration (Hours)'
+        required: true
+        default: '2'
+        type: choice
+        options: [ '1', '2', '3', '4', '5', '6' ]
+      build_new_image:
+        description: 'Force compilation of fresh Kali baseline?'
+        required: true
+        default: 'false'
+        type: boolean
+
+jobs:
+  run-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Maximize Runner Storage
+        run: |
+          echo "Purging host SDKs to maximize storage allocation..."
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo apt-get clean
+          df -h
+
+      - name: Authenticate to Docker Registry
+        run: echo "${{ secrets.DOCKER_TOKEN }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Resolve Environment State & Compile Baseline
+        run: |
+          IMAGE_NAME="surajgupta2009/kalidocker:latest"
+          
+          if [ "${{ github.event.inputs.build_new_image }}" == "true" ] || ! docker pull $IMAGE_NAME; then
+            echo "State not found or override requested. Compiling fresh Kali Linux layer stack..."
+            
+          cat << 'EOF' > Dockerfile
+          FROM kalilinux/kali-rolling
+          
+          ENV DEBIAN_FRONTEND=noninteractive
+          
+          RUN apt-get update && apt-get upgrade -y && \
+              apt-get install -y curl wget gnupg dbus xfce4 xfce4-goodies sudo nano net-tools iputils-ping && \
+              apt-get clean
+          
+          RUN curl -fsSL https://tailscale.com/install.sh | sh
+          
+          RUN DEB_URL=$(curl -s "https://www.nomachine.com/download/download&id=10" | grep -oE 'https://download.nomachine.com/download/[0-9\.]+/Linux/nomachine_[a-zA-Z0-9\._\-]+_amd64\.deb' | head -n 1) && \
+              wget -qO /tmp/nomachine.deb "$DEB_URL" && \
+              (dpkg -i /tmp/nomachine.deb || true) && \
+              apt-get install -f -y && \
+              rm /tmp/nomachine.deb
+          
+          RUN echo "DefaultDesktopCommand \"/usr/bin/startxfce4\"" >> /usr/NX/etc/node.cfg
+          
+          RUN useradd -m -s /bin/bash kali && echo 'kali:kali' | chpasswd && usermod -aG sudo kali
+          RUN mkdir -p /home/kali/Desktop && chown kali:kali /home/kali/Desktop
+          
+          RUN echo '#!/bin/bash\n\
+          mkdir -p /run/dbus\n\
+          dbus-daemon --system\n\
+          tailscaled --state=/var/lib/tailscale/tailscaled.state &\n\
+          sleep 5\n\
+          /usr/NX/bin/nxserver --startup\n\
+          sleep infinity' > /root/start.sh && chmod +x /root/start.sh
+          
+          CMD ["/root/start.sh"]
+          EOF
+          
+            docker build -t $IMAGE_NAME .
+            docker push $IMAGE_NAME
+          else
+            echo "Successfully retrieved persistent image state."
+          fi
+
+      - name: Initialize Lab Container
+        run: |
+          docker run -d \
+            --name lab-node \
+            --privileged \
+            --network host \
+            --pid host \
+            --ipc host \
+            --shm-size="2g" \
+            --cgroupns host \
+            surajgupta2009/kalidocker:latest
+
+      - name: Tailscale Network Initialization
+        run: |
+          if [ -z "${{ secrets.TAILSCALE_AUTHKEY }}" ]; then
+            echo "FATAL: TAILSCALE_AUTHKEY secret is missing. Cannot establish overlay network."
+            exit 1
+          fi
+          
+          echo "Authenticating Tailscale node..."
+          docker exec lab-node tailscale up --authkey="${{ secrets.TAILSCALE_AUTHKEY }}" --hostname="kali-lab-node"
+          docker exec lab-node tailscale status
+
+      - name: Monitor Termination Signal
+        run: |
+          HOURS=${{ github.event.inputs.lab_duration_hours }}
+          MAX_SECONDS=$(( (HOURS * 3600) - 900 )) 
+          START_TIME=$(date +%s)
+          
+          echo "Initiating telemetry loop. Maximum duration: ${MAX_SECONDS}s."
+          echo "To terminate early, create an empty file at: /home/kali/Desktop/close.txt"
+          
+          while true; do
+            CURRENT_TIME=$(date +%s)
+            ELAPSED=$((CURRENT_TIME - START_TIME))
+            
+            if [ "$ELAPSED" -ge "$MAX_SECONDS" ]; then
+              echo "Maximum safe execution time reached."
+              break
+            fi
+            
+            if docker exec lab-node test -f /home/kali/Desktop/close.txt; then
+              echo "Termination signal located."
+              break
+            fi
+            
+            sleep 30
+          done
+
+      - name: Graceful Shutdown and State Persistence
+        if: always()
+        run: |
+          if docker ps -a --format '{{.Names}}' | grep -q '^lab-node$'; then
+            echo "Initiating graceful shutdown..."
+            docker stop -t 30 lab-node || true
+            
+            IMAGE_TAG="surajgupta2009/kalidocker"
+            RUN_TAG="${IMAGE_TAG}:run-${{ github.run_id }}"
+            LATEST_TAG="${IMAGE_TAG}:latest"
+            
+            echo "Committing filesystem snapshot..."
+            docker commit lab-node $RUN_TAG
+            docker tag $RUN_TAG $LATEST_TAG
+            
+            echo "Uploading state to registry..."
+            docker push $RUN_TAG
+            docker push $LATEST_TAG
+          fi
