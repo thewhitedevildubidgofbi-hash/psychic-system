@@ -24,17 +24,23 @@ jobs:
           RUN apt-get update && \
               apt-get remove --purge -y xrdp xrdp-pulseaudio-installer && \
               apt-get autoremove -y && \
-              apt-get install -y curl wget
+              apt-get install -y curl wget grep
           
-          # 2. Acquire and install the latest NoMachine AMD64 package via static redirect
-          RUN curl -fSL "https://www.nomachine.com/free/linux/64/deb" -o /tmp/nomachine.deb && \
-              (dpkg -i /tmp/nomachine.deb || apt-get install -f -y) && \
-              rm /tmp/nomachine.deb
+          # 2. Dynamically scrape absolute .deb URL to bypass HTML redirects
+          RUN DEB_URL=$(curl -s "https://www.nomachine.com/download/download&id=10" | grep -oE 'https://download.nomachine.com/download/[0-9\.]+/Linux/nomachine_[a-zA-Z0-9\._\-]+_amd64\.deb' | head -n 1) && \
+              echo "Target Binary: $DEB_URL" && \
+              wget -qO /tmp/nomachine.deb "$DEB_URL"
           
-          # 3. Force XFCE environment rendering
+          # 3. Force installation and suppress kernel-hook (systemd) exit codes
+          RUN dpkg -i /tmp/nomachine.deb || echo "Kernel hook bypassed."
+          
+          # 4. Resolve orphaned dependencies
+          RUN apt-get install -f -y || true
+          
+          # 5. Map XFCE binary to NX initialization
           RUN echo "DefaultDesktopCommand \"/usr/bin/startxfce4\"" >> /usr/NX/etc/node.cfg
           
-          # 4. Inject NX daemon initialization into primary startup script
+          # 6. Override legacy XRDP start command
           RUN sed -i 's/service xrdp start/\/usr\/NX\/bin\/nxserver --startup/g' /root/start-lab.sh
           
           EXPOSE 4000
