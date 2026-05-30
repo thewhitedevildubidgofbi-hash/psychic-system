@@ -1,0 +1,46 @@
+name: Compile NoMachine Base Image
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Maximize Runner Storage
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache && sudo apt-get clean
+
+      - name: Authenticate to Docker Hub
+        run: echo "${{ secrets.DOCKER_TOKEN }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Synthesize Dockerfile
+        run: |
+          cat << 'EOF' > Dockerfile
+          FROM naitikgupta2009/ultimate-idx-lab:v1
+          
+          ENV DEBIAN_FRONTEND=noninteractive
+          
+          # 1. Purge legacy RDP components
+          RUN apt-get update && \
+              apt-get remove --purge -y xrdp xrdp-pulseaudio-installer && \
+              apt-get autoremove -y && \
+              apt-get install -y curl wget
+          
+          # 2. Acquire and install the latest NoMachine AMD64 package via static redirect
+          RUN curl -fSL "https://www.nomachine.com/free/linux/64/deb" -o /tmp/nomachine.deb && \
+              (dpkg -i /tmp/nomachine.deb || apt-get install -f -y) && \
+              rm /tmp/nomachine.deb
+          
+          # 3. Force XFCE environment rendering
+          RUN echo "DefaultDesktopCommand \"/usr/bin/startxfce4\"" >> /usr/NX/etc/node.cfg
+          
+          # 4. Inject NX daemon initialization into primary startup script
+          RUN sed -i 's/service xrdp start/\/usr\/NX\/bin\/nxserver --startup/g' /root/start-lab.sh
+          
+          EXPOSE 4000
+          EOF
+
+      - name: Build and Push v2 Image Layer
+        run: |
+          docker build -t naitikgupta2009/ultimate-idx-lab:v2 .
+          docker push naitikgupta2009/ultimate-idx-lab:v2
