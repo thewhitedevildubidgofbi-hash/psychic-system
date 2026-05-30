@@ -45,7 +45,7 @@ jobs:
             -e NEEDRESTART_MODE=a \
             -e LIBGL_ALWAYS_SOFTWARE=1 \
             -e GALLIUM_DRIVER=llvmpipe \
-            --storage-opt stop_timeout=30 \
+            --stop_timeout=30 \
             naitikgupta2009/ultimate-idx-lab:v1 sleep infinity
 
       - name: Execute D-Bus & Lab Initialization
