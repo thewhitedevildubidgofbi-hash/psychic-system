@@ -52,6 +52,29 @@ jobs:
           docker exec lab-node bash -c "mkdir -p /run/dbus && service dbus start"
           docker exec -d lab-node /root/start-lab.sh
 
+      - name: Core Protocol Replacement (XRDP -> NoMachine)
+        run: |
+          echo "Purging deprecated XRDP server..."
+          docker exec lab-node apt-get remove --purge -y xrdp xrdp-pulseaudio-installer
+          
+          echo "Acquiring NoMachine Debian package..."
+          docker exec lab-node wget -qO /tmp/nomachine.deb "https://download.nomachine.com/download/8.18/Linux/nomachine_8.18.4_1_amd64.deb"
+          
+          echo "Executing NoMachine installation..."
+          docker exec lab-node dpkg -i /tmp/nomachine.deb
+          docker exec lab-node apt-get install -f -y
+          
+          echo "Enabling Desktop Environment mapping..."
+          # Forces NoMachine to hook into XFCE for headless rendering
+          docker exec lab-node bash -c 'echo "DefaultDesktopCommand \"/usr/bin/startxfce4\"" >> /usr/NX/etc/node.cfg'
+          
+          echo "Modifying lab initialization script..."
+          # Swaps the old XRDP startup call for the NoMachine daemon
+          docker exec lab-node sed -i 's/service xrdp start/\/usr\/NX\/bin\/nxserver --startup/g' /root/start-lab.sh
+          
+          echo "Starting NX Server..."
+          docker exec lab-node /usr/NX/bin/nxserver --startup
+
       - name: Monitor Termination Signal
         run: |
           HOURS=${{ github.event.inputs.lab_duration_hours }}
