@@ -55,7 +55,7 @@ jobs:
       - name: Monitor Termination Signal
         run: |
           HOURS=${{ github.event.inputs.lab_duration_hours }}
-          # Subtract 900 seconds (15 minutes) buffer to account for massive image upload times
+          # Subtract 900 seconds (15 minutes) buffer to account for image upload sequences
           MAX_SECONDS=$(( (HOURS * 3600) - 900 )) 
           START_TIME=$(date +%s)
           
@@ -65,7 +65,7 @@ jobs:
             CURRENT_TIME=$(date +%s)
             ELAPSED=$((CURRENT_TIME - START_TIME))
             
-            if [ $ELAPSED -ge $MAX_SECONDS ]; do
+            if [ "$ELAPSED" -ge "$MAX_SECONDS" ]; then
               echo "Maximum safe execution time reached. Initiating sequence."
               break
             fi
@@ -81,17 +81,21 @@ jobs:
       - name: Graceful Shutdown and Monolithic State Persistence
         if: always()
         run: |
-          echo "Initiating graceful container shutdown..."
-          docker stop -t 30 lab-node || true
-          
-          IMAGE_TAG="naitikgupta2009/ultimate-idx-lab"
-          RUN_TAG="${IMAGE_TAG}:run-${{ github.run_id }}"
-          LATEST_TAG="${IMAGE_TAG}:v1"
-          
-          echo "Committing absolute filesystem snapshot..."
-          docker commit lab-node $RUN_TAG
-          docker tag $RUN_TAG $LATEST_TAG
-          
-          echo "Uploading monolithic state to registry. Warning: High bandwidth operation..."
-          docker push $RUN_TAG
-          docker push $LATEST_TAG
+          if docker ps -a --format '{{.Names}}' | grep -q '^lab-node$'; then
+            echo "Container detected. Initiating graceful shutdown..."
+            docker stop -t 30 lab-node || true
+            
+            IMAGE_TAG="naitikgupta2009/ultimate-idx-lab"
+            RUN_TAG="${IMAGE_TAG}:run-${{ github.run_id }}"
+            LATEST_TAG="${IMAGE_TAG}:v1"
+            
+            echo "Committing absolute filesystem snapshot..."
+            docker commit lab-node $RUN_TAG
+            docker tag $RUN_TAG $LATEST_TAG
+            
+            echo "Uploading monolithic state to registry..."
+            docker push $RUN_TAG
+            docker push $LATEST_TAG
+          else
+            echo "Container 'lab-node' was never initialized. Skipping persistence layer."
+          fi
