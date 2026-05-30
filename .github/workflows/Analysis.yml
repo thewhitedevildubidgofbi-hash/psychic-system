@@ -8,26 +8,30 @@ on:
         required: true
         default: '2'
         type: choice
-        options:
-          - '1'
-          - '2'
-          - '3'
-          - '4'
-          - '5'
-          - '6'
+        options: [ '1', '2', '3', '4', '5', '6' ]
 
 jobs:
   run-lab:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     steps:
+      - name: Maximize Runner Storage (Purge Pre-installed SDKs)
+        run: |
+          echo "Purging unnecessary host environments to maximize Docker storage allocation..."
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache
+          sudo apt-get clean
+          df -h
+
       - name: Checkout Repository Code
         uses: actions/checkout@v4
 
-      - name: Authenticate to Docker Hub
-        run: |
-          echo "${{ secrets.DOCKER_TOKEN }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+      - name: Authenticate to Docker Registry
+        run: echo "${{ secrets.DOCKER_TOKEN }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-      - name: Initialize Unrestricted Container
+      - name: Initialize GUI-Optimized Container (Total Persistence Mode)
         run: |
           docker run -d \
             --name lab-node \
@@ -35,9 +39,13 @@ jobs:
             --network host \
             --pid host \
             --ipc host \
+            --shm-size="2g" \
+            --cgroupns host \
             -e DEBIAN_FRONTEND=noninteractive \
-            -v /:/host_root \
-            -v "${{ github.workspace }}:/root/projects" \
+            -e NEEDRESTART_MODE=a \
+            -e LIBGL_ALWAYS_SOFTWARE=1 \
+            -e GALLIUM_DRIVER=llvmpipe \
+            --storage-opt stop_timeout=30 \
             naitikgupta2009/ultimate-idx-lab:v1 sleep infinity
 
       - name: Execute D-Bus & Lab Initialization
@@ -48,37 +56,43 @@ jobs:
       - name: Monitor Termination Signal
         run: |
           HOURS=${{ github.event.inputs.lab_duration_hours }}
-          MAX_SECONDS=$(( HOURS * 3600 ))
-          ELAPSED=0
-          POLL_INTERVAL=300
+          # Subtract 900 seconds (15 minutes) buffer to account for massive image upload times
+          MAX_SECONDS=$(( (HOURS * 3600) - 900 )) 
+          START_TIME=$(date +%s)
           
           echo "Initiating telemetry loop. Maximum duration: ${MAX_SECONDS}s."
-          echo "Polling for /root/desktop/close.txt every 300s."
           
-          while [ $ELAPSED -lt $MAX_SECONDS ]; do
+          while true; do
+            CURRENT_TIME=$(date +%s)
+            ELAPSED=$((CURRENT_TIME - START_TIME))
+            
+            if [ $ELAPSED -ge $MAX_SECONDS ]; do
+              echo "Maximum safe execution time reached. Initiating sequence."
+              break
+            fi
+            
             if docker exec lab-node test -f /root/desktop/close.txt; then
               echo "Termination signal located. Exiting loop."
               break
             fi
-            sleep $POLL_INTERVAL
-            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+            
+            sleep 30
           done
-          
-          if [ $ELAPSED -ge $MAX_SECONDS ]; do
-            echo "Maximum execution time reached. Initiating fallback termination."
-          fi
 
-      - name: Graceful Shutdown and Persistence
+      - name: Graceful Shutdown and Monolithic State Persistence
         if: always()
         run: |
-          echo "Ingesting workspace data to persistence layer..."
-          docker exec lab-node cp -r /root/projects /root/persisted-projects || true
-          
-          echo "Initiating graceful container shutdown (30s timeout)..."
+          echo "Initiating graceful container shutdown..."
           docker stop -t 30 lab-node || true
           
-          echo "Committing filesystem snapshot..."
-          docker commit lab-node naitikgupta2009/ultimate-idx-lab:v1
+          IMAGE_TAG="naitikgupta2009/ultimate-idx-lab"
+          RUN_TAG="${IMAGE_TAG}:run-${{ github.run_id }}"
+          LATEST_TAG="${IMAGE_TAG}:v1"
           
-          echo "Uploading image to registry..."
-          docker push naitikgupta2009/ultimate-idx-lab:v1
+          echo "Committing absolute filesystem snapshot..."
+          docker commit lab-node $RUN_TAG
+          docker tag $RUN_TAG $LATEST_TAG
+          
+          echo "Uploading monolithic state to registry. Warning: High bandwidth operation..."
+          docker push $RUN_TAG
+          docker push $LATEST_TAG
