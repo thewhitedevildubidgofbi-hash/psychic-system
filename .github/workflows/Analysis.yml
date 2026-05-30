@@ -15,15 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
-      - name: Maximize Runner Storage (Purge Pre-installed SDKs)
-        run: |
-          echo "Purging unnecessary host environments to maximize Docker storage allocation..."
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache
-          sudo apt-get clean
-          df -h
 
       - name: Checkout Repository Code
         uses: actions/checkout@v4
@@ -55,21 +46,31 @@ jobs:
       - name: Core Protocol Replacement (XRDP -> NoMachine)
         run: |
           echo "Purging deprecated XRDP server..."
-          docker exec lab-node apt-get remove --purge -y xrdp xrdp-pulseaudio-installer
+          docker exec lab-node apt-get remove --purge -y xrdp xrdp-pulseaudio-installer || true
           
-          echo "Acquiring NoMachine Debian package..."
-          docker exec lab-node wget -qO /tmp/nomachine.deb "https://download.nomachine.com/download/8.18/Linux/nomachine_8.18.4_1_amd64.deb"
+          echo "Acquiring latest NoMachine Debian package..."
+          # Dynamically scrape the official site for the latest AMD64 package URL to prevent 404s
+          DOWNLOAD_URL=$(curl -s "https://www.nomachine.com/download/download&id=10" | grep -oP 'https://download.nomachine.com/download/\d+\.\d+/Linux/nomachine_[^"]+_amd64.deb' | head -n 1)
+          
+          if [ -z "$DOWNLOAD_URL" ]; then
+            echo "Error: Failed to parse NoMachine download URL."
+            exit 1
+          fi
+          
+          echo "Fetching from: $DOWNLOAD_URL"
+          docker exec lab-node wget -qO /tmp/nomachine.deb "$DOWNLOAD_URL"
           
           echo "Executing NoMachine installation..."
-          docker exec lab-node dpkg -i /tmp/nomachine.deb
+          # The '|| true' prevents GitHub Actions from killing the workflow when dpkg detects missing dependencies
+          docker exec lab-node dpkg -i /tmp/nomachine.deb || true
+          
+          echo "Resolving dependencies..."
           docker exec lab-node apt-get install -f -y
           
           echo "Enabling Desktop Environment mapping..."
-          # Forces NoMachine to hook into XFCE for headless rendering
           docker exec lab-node bash -c 'echo "DefaultDesktopCommand \"/usr/bin/startxfce4\"" >> /usr/NX/etc/node.cfg'
           
           echo "Modifying lab initialization script..."
-          # Swaps the old XRDP startup call for the NoMachine daemon
           docker exec lab-node sed -i 's/service xrdp start/\/usr\/NX\/bin\/nxserver --startup/g' /root/start-lab.sh
           
           echo "Starting NX Server..."
