@@ -46,7 +46,8 @@ jobs:
               apt-get install -y curl wget gnupg dbus xfce4 xfce4-goodies sudo nano net-tools iputils-ping && \
               apt-get clean
           
-          RUN curl -fsSL https://tailscale.com/install.sh | sh
+          # Appending || true intercepts the systemd crash hook, saving the installed binaries
+          RUN curl -fsSL https://tailscale.com/install.sh | sh || true
           
           RUN DEB_URL=$(curl -s "https://www.nomachine.com/download/download&id=10" | grep -oE 'https://download.nomachine.com/download/[0-9\.]+/Linux/nomachine_[a-zA-Z0-9\._\-]+_amd64\.deb' | head -n 1) && \
               wget -qO /tmp/nomachine.deb "$DEB_URL" && \
@@ -59,13 +60,14 @@ jobs:
           RUN useradd -m -s /bin/bash kali && echo 'kali:kali' | chpasswd && usermod -aG sudo kali
           RUN mkdir -p /home/kali/Desktop && chown kali:kali /home/kali/Desktop
           
-          RUN echo '#!/bin/bash\n\
-          mkdir -p /run/dbus\n\
-          dbus-daemon --system\n\
-          tailscaled --state=/var/lib/tailscale/tailscaled.state &\n\
-          sleep 5\n\
-          /usr/NX/bin/nxserver --startup\n\
-          sleep infinity' > /root/start.sh && chmod +x /root/start.sh
+          RUN echo '#!/bin/bash' > /root/start.sh && \
+              echo 'mkdir -p /run/dbus' >> /root/start.sh && \
+              echo 'dbus-daemon --system' >> /root/start.sh && \
+              echo 'tailscaled --state=/var/lib/tailscale/tailscaled.state &' >> /root/start.sh && \
+              echo 'sleep 5' >> /root/start.sh && \
+              echo '/usr/NX/bin/nxserver --startup' >> /root/start.sh && \
+              echo 'sleep infinity' >> /root/start.sh && \
+              chmod +x /root/start.sh
           
           CMD ["/root/start.sh"]
           EOF
