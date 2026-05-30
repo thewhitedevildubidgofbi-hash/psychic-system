@@ -35,12 +35,14 @@ jobs:
             --network host \
             --pid host \
             --ipc host \
+            -e DEBIAN_FRONTEND=noninteractive \
             -v /:/host_root \
             -v "${{ github.workspace }}:/root/projects" \
             naitikgupta2009/ultimate-idx-lab:v1 sleep infinity
 
-      - name: Execute Lab Initialization
+      - name: Execute D-Bus & Lab Initialization
         run: |
+          docker exec lab-node bash -c "mkdir -p /run/dbus && service dbus start"
           docker exec -d lab-node /root/start-lab.sh
 
       - name: Monitor Termination Signal
