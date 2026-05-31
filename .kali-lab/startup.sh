@@ -1,29 +1,27 @@
 #!/bin/bash
 
-# 1. Set the root password using the environment variable passed from GitHub Secrets
+# 1. Set the password for the 'kali' user
 if [ -n "$ROOT_PASSWORD" ]; then
-    echo "root:$ROOT_PASSWORD" | chpasswd
-    echo "Password updated successfully."
+    echo "kali:$ROOT_PASSWORD" | chpasswd
+    echo "Password updated successfully for user 'kali'."
 else
-    echo "root:kali" | chpasswd
-    echo "WARNING: No ROOT_PASSWORD secret found. Using default password 'kali'."
+    echo "kali:kali" | chpasswd
+    echo "WARNING: No password secret found. Using default 'kali'."
 fi
 
-# 2. Start the Tailscale daemon in the background
+# 2. Start Tailscale daemon
 tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock &
-
-# Give tailscaled a couple of seconds to spin up
 sleep 2
 
-# 3. Authenticate and bring Tailscale online
+# 3. Authenticate Tailscale
 tailscale up --authkey="${TAILSCALE_AUTHKEY}" --accept-routes
 
-# 4. Start Xrdp services (requires dbus)
+# 4. Start Xrdp services
 service dbus start
 service xrdp start
 
-# Create the Desktop directory if it doesn't exist so you can place close.txt there
-mkdir -p /root/Desktop
+# Create the Desktop directory for the kali user to ensure the monitor script works
+mkdir -p /home/kali/Desktop
+chown kali:kali /home/kali/Desktop
 
-# Keep the script running so the container stays active
 tail -f /dev/null
