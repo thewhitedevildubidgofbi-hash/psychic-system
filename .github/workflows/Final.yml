@@ -42,30 +42,32 @@ jobs:
           
           ENV DEBIAN_FRONTEND=noninteractive
           
+          # xvfb and xauth injected to simulate physical display infrastructure
           RUN apt-get update && apt-get upgrade -y && \
-              apt-get install -y curl wget gnupg dbus xfce4 xfce4-goodies sudo nano net-tools iputils-ping && \
+              apt-get install -y curl wget gnupg dbus xfce4 xfce4-goodies sudo nano net-tools iputils-ping xvfb xauth && \
               apt-get clean
           
           RUN curl -fsSL https://tailscale.com/install.sh | sh || true
           
-          # Upgraded to verified 9.5.7 package (May 2026 release)
-          # Swapped wget for curl -fSL to instantly halt the build on 404 instead of downloading a corrupted HTML file
           RUN curl -fSL -o /tmp/nomachine.deb "https://download.nomachine.com/download/9.5/Linux/nomachine_9.5.7_2_amd64.deb" && \
               (dpkg -i /tmp/nomachine.deb || true) && \
               apt-get install -f -y && \
               test -d /usr/NX/etc || (echo "FATAL: NoMachine installation failed." && exit 1) && \
               rm /tmp/nomachine.deb
           
-          RUN echo "DefaultDesktopCommand \"/usr/bin/startxfce4\"" >> /usr/NX/etc/node.cfg
-          
           RUN useradd -m -s /bin/bash kali && echo 'kali:kali' | chpasswd && usermod -aG sudo kali
           RUN mkdir -p /home/kali/Desktop && chown kali:kali /home/kali/Desktop
           
+          # Sequenced startup architecture to guarantee framebuffer availability before server boot
           RUN echo '#!/bin/bash' > /root/start.sh && \
               echo 'mkdir -p /run/dbus' >> /root/start.sh && \
               echo 'dbus-daemon --system' >> /root/start.sh && \
               echo 'tailscaled --state=/var/lib/tailscale/tailscaled.state &' >> /root/start.sh && \
               echo 'sleep 5' >> /root/start.sh && \
+              echo 'Xvfb :0 -ac -screen 0 1920x1080x24 &' >> /root/start.sh && \
+              echo 'sleep 2' >> /root/start.sh && \
+              echo 'sudo -u kali bash -c "export DISPLAY=:0 && startxfce4" &' >> /root/start.sh && \
+              echo 'sleep 3' >> /root/start.sh && \
               echo '/usr/NX/bin/nxserver --startup' >> /root/start.sh && \
               echo 'sleep infinity' >> /root/start.sh && \
               chmod +x /root/start.sh
