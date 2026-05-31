@@ -35,15 +35,16 @@ jobs:
           IMAGE_NAME="surajgupta2009/kalidocker:latest"
           
           if [ "${{ github.event.inputs.build_new_image }}" == "true" ] || ! docker pull $IMAGE_NAME; then
-            echo "State not found or override requested. Compiling fresh Kali Linux layer stack..."
+            echo "State not found or override requested. Compiling hardened Kali Linux layer stack..."
             
           cat << 'EOF' > Dockerfile
           FROM kalilinux/kali-rolling
           
           ENV DEBIAN_FRONTEND=noninteractive
           
+          # Injected x11-xserver-utils for explicit xhost access control
           RUN apt-get update && apt-get upgrade -y && \
-              apt-get install -y curl wget gnupg dbus dbus-x11 xfce4 xfce4-goodies sudo nano net-tools iputils-ping xvfb xauth xfonts-base && \
+              apt-get install -y curl wget gnupg dbus dbus-x11 xfce4 xfce4-goodies sudo nano net-tools iputils-ping xvfb xauth xfonts-base mesa-utils x11-xserver-utils && \
               (apt-get remove --purge -y light-locker xfce4-screensaver || true) && \
               apt-get autoremove -y && \
               apt-get clean
@@ -56,12 +57,17 @@ jobs:
               test -d /usr/NX/etc || (echo "FATAL: NoMachine installation failed." && exit 1) && \
               rm /tmp/nomachine.deb
           
-          RUN echo 'PhysicalDisplays ":0"' >> /usr/NX/etc/node.cfg
+          # Map to virtual display and explicitly neutralize Audio-Sink deadlock vectors
+          RUN echo 'PhysicalDisplays ":0"' >> /usr/NX/etc/node.cfg && \
+              echo 'AudioInterface disabled' >> /usr/NX/etc/node.cfg && \
+              sed -i 's/^EnableAudio 1/EnableAudio 0/g' /usr/NX/etc/server.cfg || echo 'EnableAudio 0' >> /usr/NX/etc/server.cfg
           
-          RUN useradd -m -s /bin/bash kali && echo 'kali:kali' | chpasswd && usermod -aG sudo kali
-          RUN mkdir -p /home/kali/Desktop && chown kali:kali /home/kali/Desktop
+          RUN dbus-uuidgen > /etc/machine-id && dbus-uuidgen > /var/lib/dbus/machine-id
           
-          # Implementation of absolute socket authority, software rendering, and DPMS disablement
+          RUN useradd -m -s /bin/bash kali && echo 'kali:kali' | chpasswd && usermod -aG sudo kali video render
+          RUN mkdir -p /home/kali/Desktop && chown -R kali:kali /home/kali
+          
+          # XFWM4 Compositor disabled, xhost unlocked, strict execution sequencing applied
           RUN echo '#!/bin/bash' > /root/start.sh && \
               echo 'mkdir -p /run/dbus' >> /root/start.sh && \
               echo 'dbus-daemon --system' >> /root/start.sh && \
@@ -71,7 +77,8 @@ jobs:
               echo 'rm -f /tmp/.X0-lock' >> /root/start.sh && \
               echo 'Xvfb :0 -ac -screen 0 1920x1080x24 -dpms -s 0 &' >> /root/start.sh && \
               echo 'sleep 2' >> /root/start.sh && \
-              echo 'sudo -u kali bash -c "export DISPLAY=:0 && export LIBGL_ALWAYS_SOFTWARE=1 && export GALLIUM_DRIVER=llvmpipe && dbus-launch startxfce4" &' >> /root/start.sh && \
+              echo 'export DISPLAY=:0 && xhost +' >> /root/start.sh && \
+              echo 'sudo -u kali bash -c "export DISPLAY=:0 && export LIBGL_ALWAYS_SOFTWARE=1 && export GALLIUM_DRIVER=llvmpipe && xfconf-query -c xfwm4 -p /general/use_compositing -s false --create -t bool || true && dbus-launch startxfce4 > /home/kali/desktop.log 2>&1" &' >> /root/start.sh && \
               echo 'sleep 4' >> /root/start.sh && \
               echo '/usr/NX/bin/nxserver --startup' >> /root/start.sh && \
               echo 'sleep 2' >> /root/start.sh && \
@@ -136,6 +143,14 @@ jobs:
             
             sleep 30
           done
+
+      - name: XFCE Desktop Telemetry Dump
+        if: always()
+        run: |
+          echo "Extracting XFCE render logs from container..."
+          docker exec lab-node cat /home/kali/desktop.log || echo "XFCE Log file inaccessible."
+          echo "Extracting Core System Logs..."
+          docker logs lab-node | tail -n 50
 
       - name: Graceful Shutdown and State Persistence
         if: always()
