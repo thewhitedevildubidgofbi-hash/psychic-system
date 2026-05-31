@@ -15,13 +15,14 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     && apt-get clean
 
-# Install Tailscale manually without using the systemd-dependent script
-RUN mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | tee /etc/apt/keyrings/tailscale-archive-keyring.gpg > /dev/null && \
+# Install Tailscale manually matching their exact repository paths
+RUN mkdir -p /usr/share/keyrings && \
+    curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg > /dev/null && \
     curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list && \
     apt-get update && \
     apt-get install -y tailscale && \
     apt-get clean
+
 
 # Configure Xrdp to use XFCE
 RUN echo "xfce4-session" > /root/.xsession
