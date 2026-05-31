@@ -42,9 +42,9 @@ jobs:
           
           ENV DEBIAN_FRONTEND=noninteractive
           
-          # Injected x11-xserver-utils for explicit xhost access control
+          # Injected tini (Container Init System) to resolve D-Bus kernel sandboxing
           RUN apt-get update && apt-get upgrade -y && \
-              apt-get install -y curl wget gnupg dbus dbus-x11 xfce4 xfce4-goodies sudo nano net-tools iputils-ping xvfb xauth xfonts-base mesa-utils x11-xserver-utils && \
+              apt-get install -y curl wget gnupg dbus dbus-x11 xfce4 xfce4-goodies sudo nano net-tools iputils-ping xvfb xauth xfonts-base mesa-utils x11-xserver-utils tini && \
               (apt-get remove --purge -y light-locker xfce4-screensaver || true) && \
               apt-get autoremove -y && \
               apt-get clean
@@ -64,11 +64,10 @@ jobs:
           
           RUN dbus-uuidgen > /etc/machine-id && dbus-uuidgen > /var/lib/dbus/machine-id
           
-          # Corrected usermod syntax for multi-group assignment
           RUN useradd -m -s /bin/bash kali && echo 'kali:kali' | chpasswd && usermod -aG sudo,video,render kali
           RUN mkdir -p /home/kali/Desktop && chown -R kali:kali /home/kali
           
-          # XFWM4 Compositor disabled, xhost unlocked, strict execution sequencing applied
+          # Stripped xfconf-query to simplify XFCE boot sequence
           RUN echo '#!/bin/bash' > /root/start.sh && \
               echo 'mkdir -p /run/dbus' >> /root/start.sh && \
               echo 'dbus-daemon --system' >> /root/start.sh && \
@@ -79,7 +78,7 @@ jobs:
               echo 'Xvfb :0 -ac -screen 0 1920x1080x24 -dpms -s 0 &' >> /root/start.sh && \
               echo 'sleep 2' >> /root/start.sh && \
               echo 'export DISPLAY=:0 && xhost +' >> /root/start.sh && \
-              echo 'sudo -u kali bash -c "export DISPLAY=:0 && export LIBGL_ALWAYS_SOFTWARE=1 && export GALLIUM_DRIVER=llvmpipe && xfconf-query -c xfwm4 -p /general/use_compositing -s false --create -t bool || true && dbus-launch startxfce4 > /home/kali/desktop.log 2>&1" &' >> /root/start.sh && \
+              echo 'sudo -u kali bash -c "export DISPLAY=:0 && export LIBGL_ALWAYS_SOFTWARE=1 && export GALLIUM_DRIVER=llvmpipe && dbus-launch startxfce4 > /home/kali/desktop.log 2>&1" &' >> /root/start.sh && \
               echo 'sleep 4' >> /root/start.sh && \
               echo '/usr/NX/bin/nxserver --startup' >> /root/start.sh && \
               echo 'sleep 2' >> /root/start.sh && \
@@ -87,7 +86,9 @@ jobs:
               echo 'sleep infinity' >> /root/start.sh && \
               chmod +x /root/start.sh
           
-          CMD ["/root/start.sh"]
+          # Initialize container with Tini as PID 1 to manage system calls, then pass start.sh to bash
+          ENTRYPOINT ["/usr/bin/tini", "--"]
+          CMD ["/bin/bash", "/root/start.sh"]
           EOF
           
             docker build -t $IMAGE_NAME .
