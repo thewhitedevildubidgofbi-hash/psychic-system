@@ -1,0 +1,70 @@
+name: 2. Launch Kali Remote Lab
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-lab:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Pull Latest Saved State
+        run: |
+          docker pull ${{ secrets.DOCKER_USERNAME }}/kali-study-lab:latest
+
+      - name: Run Kali Lab (Max Hardware Optimization)
+        run: |
+          # --privileged ensures full hardware capability access
+          # --net=host hooks Tailscale directly to the runner's network stack
+          # --shm-size=4g prevents XFCE/browser rendering crashes
+          docker run -d \
+            --name my-kali-container \
+            --privileged \
+            --net=host \
+            --shm-size=4g \
+            -e TAILSCALE_AUTHKEY=${{ secrets.TAILSCALE_AUTHKEY }} \
+            -e ROOT_PASSWORD=${{ secrets.KALI_ROOT_PASSWORD }} \
+            ${{ secrets.DOCKER_USERNAME }}/kali-study-lab:latest
+
+      - name: Lab Monitor & Auto-Save Loop
+        run: |
+          echo "Lab is boot strapping..."
+          echo "Connect via your Tablet's Microsoft Remote Desktop App using the Tailscale IP of this machine."
+          
+          # Monitor loop (checks every 15 seconds)
+          while true; do
+            # Check if close.txt exists on the root user's desktop
+            if docker exec my-kali-container test -f /root/Desktop/close.txt; then
+              echo "Signal file 'close.txt' detected on Desktop! Starting teardown process..."
+              break
+            fi
+            
+            # Absolute safety timeout at 5 hours and 45 minutes to prevent GH forceful termination
+            if [ $SECONDS -gt 20700 ]; then
+              echo "Approaching GitHub Actions max runtime limit. Auto-saving now..."
+              break
+            fi
+            
+            sleep 15
+          done
+
+      - name: Commit State & Push Progress
+        if: always()
+        run: |
+          echo "Cleaning up signal file so it doesn't halt the next boot..."
+          docker exec my-kali-container rm -f /root/Desktop/close.txt || true
+          
+          echo "Stopping container safely to flush disk changes..."
+          docker stop my-kali-container
+          
+          echo "Committing filesystem changes..."
+          docker commit my-kali-container ${{ secrets.DOCKER_USERNAME }}/kali-study-lab:latest
+          
+          echo "Pushing new state to Docker Hub..."
+          docker push ${{ secrets.DOCKER_USERNAME }}/kali-study-lab:latest
+          echo "Lab progress successfully synchronized."
