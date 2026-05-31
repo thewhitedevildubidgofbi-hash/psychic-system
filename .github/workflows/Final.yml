@@ -42,9 +42,10 @@ jobs:
           
           ENV DEBIAN_FRONTEND=noninteractive
           
-          # Injected dbus-x11 and xfonts-base to stabilize headless XFCE & Xvfb
           RUN apt-get update && apt-get upgrade -y && \
               apt-get install -y curl wget gnupg dbus dbus-x11 xfce4 xfce4-goodies sudo nano net-tools iputils-ping xvfb xauth xfonts-base && \
+              (apt-get remove --purge -y light-locker xfce4-screensaver || true) && \
+              apt-get autoremove -y && \
               apt-get clean
           
           RUN curl -fsSL https://tailscale.com/install.sh | sh || true
@@ -55,22 +56,22 @@ jobs:
               test -d /usr/NX/etc || (echo "FATAL: NoMachine installation failed." && exit 1) && \
               rm /tmp/nomachine.deb
           
-          # Force NoMachine to strictly hook the virtual physical display
           RUN echo 'PhysicalDisplays ":0"' >> /usr/NX/etc/node.cfg
           
           RUN useradd -m -s /bin/bash kali && echo 'kali:kali' | chpasswd && usermod -aG sudo kali
           RUN mkdir -p /home/kali/Desktop && chown kali:kali /home/kali/Desktop
           
-          # Sequenced startup architecture with explicit dbus-launch
+          # Implementation of absolute socket authority, software rendering, and DPMS disablement
           RUN echo '#!/bin/bash' > /root/start.sh && \
               echo 'mkdir -p /run/dbus' >> /root/start.sh && \
               echo 'dbus-daemon --system' >> /root/start.sh && \
               echo 'tailscaled --state=/var/lib/tailscale/tailscaled.state &' >> /root/start.sh && \
               echo 'sleep 5' >> /root/start.sh && \
+              echo 'rm -rf /tmp/.X11-unix && mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix' >> /root/start.sh && \
               echo 'rm -f /tmp/.X0-lock' >> /root/start.sh && \
-              echo 'Xvfb :0 -ac -screen 0 1920x1080x24 &' >> /root/start.sh && \
+              echo 'Xvfb :0 -ac -screen 0 1920x1080x24 -dpms -s 0 &' >> /root/start.sh && \
               echo 'sleep 2' >> /root/start.sh && \
-              echo 'sudo -u kali bash -c "export DISPLAY=:0 && dbus-launch startxfce4" &' >> /root/start.sh && \
+              echo 'sudo -u kali bash -c "export DISPLAY=:0 && export LIBGL_ALWAYS_SOFTWARE=1 && export GALLIUM_DRIVER=llvmpipe && dbus-launch startxfce4" &' >> /root/start.sh && \
               echo 'sleep 4' >> /root/start.sh && \
               echo '/usr/NX/bin/nxserver --startup' >> /root/start.sh && \
               echo 'sleep 2' >> /root/start.sh && \
