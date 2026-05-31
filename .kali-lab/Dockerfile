@@ -24,10 +24,13 @@ RUN mkdir -p /usr/share/keyrings && \
     apt-get install -y tailscale && \
     apt-get clean
 
-# Configure Xrdp to use XFCE for both root and kali users
-RUN echo "xfce4-session" > /root/.xsession && \
-    echo "xfce4-session" > /home/kali/.xsession && \
-    chown kali:kali /home/kali/.xsession
+# Force XRDP to bypass default session managers and load XFCE4 securely
+RUN echo "#!/bin/sh" > /etc/xrdp/startwm.sh && \
+    echo "export XDG_SESSION_DESKTOP=xfce" >> /etc/xrdp/startwm.sh && \
+    echo "export XDG_CURRENT_DESKTOP=XFCE" >> /etc/xrdp/startwm.sh && \
+    echo "exec dbus-run-session startxfce4" >> /etc/xrdp/startwm.sh && \
+    chmod +x /etc/xrdp/startwm.sh
+
 
 EXPOSE 3389
 
