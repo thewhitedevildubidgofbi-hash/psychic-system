@@ -39,7 +39,7 @@ jobs:
           # Monitor loop (checks every 15 seconds)
           while true; do
             # Check if close.txt exists on the root user's desktop
-            if docker exec my-kali-container test -f /root/Desktop/close.txt; then
+            if docker exec my-kali-container test -f /home/kali/Desktop/close.txt; then
               echo "Signal file 'close.txt' detected on Desktop! Starting teardown process..."
               break
             fi
@@ -57,7 +57,7 @@ jobs:
         if: always()
         run: |
           echo "Cleaning up signal file so it doesn't halt the next boot..."
-          docker exec my-kali-container rm -f /root/Desktop/close.txt || true
+          docker exec my-kali-container rm -f /home/kali/Desktop/close.txt || true
           
           echo "Stopping container safely to flush disk changes..."
           docker stop my-kali-container
