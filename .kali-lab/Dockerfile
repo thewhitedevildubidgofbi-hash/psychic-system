@@ -5,7 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # 1. Install Systemd, FUSE, GUI, and tools
 RUN apt-get update && apt-get install -y \
     systemd systemd-sysv \
-    fuse libfuse2 \
+    fuse libfuse2t64 \
     kali-desktop-xfce xrdp \
     curl sudo wget dbus-x11 gnupg \
     && apt-get clean
