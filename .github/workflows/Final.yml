@@ -64,7 +64,8 @@ jobs:
           
           RUN dbus-uuidgen > /etc/machine-id && dbus-uuidgen > /var/lib/dbus/machine-id
           
-          RUN useradd -m -s /bin/bash kali && echo 'kali:kali' | chpasswd && usermod -aG sudo kali video render
+          # Corrected usermod syntax for multi-group assignment
+          RUN useradd -m -s /bin/bash kali && echo 'kali:kali' | chpasswd && usermod -aG sudo,video,render kali
           RUN mkdir -p /home/kali/Desktop && chown -R kali:kali /home/kali
           
           # XFWM4 Compositor disabled, xhost unlocked, strict execution sequencing applied
