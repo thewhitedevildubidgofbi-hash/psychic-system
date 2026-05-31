@@ -46,11 +46,10 @@ jobs:
               apt-get install -y curl wget gnupg dbus xfce4 xfce4-goodies sudo nano net-tools iputils-ping && \
               apt-get clean
           
-          # Appending || true intercepts the systemd crash hook, saving the installed binaries
           RUN curl -fsSL https://tailscale.com/install.sh | sh || true
           
-          RUN DEB_URL=$(curl -s "https://www.nomachine.com/download/download&id=10" | grep -oE 'https://download.nomachine.com/download/[0-9\.]+/Linux/nomachine_[a-zA-Z0-9\._\-]+_amd64\.deb' | head -n 1) && \
-              wget -qO /tmp/nomachine.deb "$DEB_URL" && \
+          # Replaced brittle DOM scraping with absolute deterministic binary target
+          RUN wget -qO /tmp/nomachine.deb "https://download.nomachine.com/download/8.18/Linux/nomachine_8.18.4_1_amd64.deb" && \
               (dpkg -i /tmp/nomachine.deb || true) && \
               apt-get install -f -y && \
               rm /tmp/nomachine.deb
