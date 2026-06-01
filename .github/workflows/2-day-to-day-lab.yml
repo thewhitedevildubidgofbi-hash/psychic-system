@@ -36,12 +36,12 @@ jobs:
 
       - name: Initialize VM-Parity Container
         run: |
+          # Removed --pid host to isolate the process namespace for systemd PID 1
           docker run -d \
             --name my-kali-container \
             --privileged \
             --network host \
             --cgroupns host \
-            --pid host \
             --ipc host \
             --device /dev/fuse \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
@@ -51,6 +51,15 @@ jobs:
             -e TAILSCALE_AUTHKEY=${{ secrets.TAILSCALE_AUTHKEY }} \
             -e ROOT_PASSWORD=${{ secrets.KALI_ROOT_PASSWORD }} \
             ${{ secrets.DOCKER_USERNAME }}/kali-study-lab:latest
+
+      - name: Verify Container Integrity & Dump Logs
+        run: |
+          sleep 5
+          if [ "$(docker inspect -f '{{.State.Running}}' my-kali-container)" != "true" ]; then
+            echo "CRITICAL: Container terminated unexpectedly. Dumping daemon logs:"
+            docker logs my-kali-container
+            exit 1
+          fi
 
       - name: Telemetry Loop & Auto-Save Monitor
         run: |
