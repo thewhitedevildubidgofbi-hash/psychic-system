@@ -3,12 +3,14 @@ FROM kalilinux/kali-rolling:latest
 ENV DEBIAN_FRONTEND=noninteractive
 
 # 1. Install Systemd, FUSE, GUI, and tools
+# 1. Install Systemd, FUSE, GUI, and tools
 RUN apt-get update && apt-get install -y \
-    systemd systemd \
-    fuse libfuse2t64 \
+    systemd \
+    fuse3 libfuse3-3 \
     kali-desktop-xfce xrdp \
     curl sudo wget dbus-x11 gnupg \
     && apt-get clean
+
 
 # 2. Mask unnecessary hardware systemd services to prevent boot hangs in Docker
 RUN systemctl mask dev-mqueue.mount dev-hugepages.mount \
