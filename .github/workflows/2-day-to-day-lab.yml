@@ -12,7 +12,8 @@ on:
 jobs:
   run-lab:
     runs-on: ubuntu-latest
-    timeout-minutes: 360 # Hard boundary for GitHub Actions
+    timeout-minutes: 360
+
     steps:
       - name: Maximize Runner Storage
         run: |
@@ -30,8 +31,8 @@ jobs:
 
       - name: Optimize Host Network Stack
         run: |
-          # Force aggressive TCP window scaling on the host runner
           sudo sysctl -w net.ipv4.tcp_window_scaling=1
+          sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
 
       - name: Initialize VM-Parity Container
         run: |
@@ -46,7 +47,6 @@ jobs:
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
             --shm-size=4g \
             --security-opt apparmor:unconfined \
-            --sysctl net.ipv6.conf.all.disable_ipv6=1 \
             --ulimit nofile=100000:100000 \
             -e TAILSCALE_AUTHKEY=${{ secrets.TAILSCALE_AUTHKEY }} \
             -e ROOT_PASSWORD=${{ secrets.KALI_ROOT_PASSWORD }} \
@@ -77,19 +77,23 @@ jobs:
           if docker ps -a --format '{{.Names}}' | grep -q '^my-kali-container$'; then
             docker exec my-kali-container rm -f /root/Desktop/close.txt || true
             docker stop -t 45 my-kali-container || true
+            
             IMAGE_TAG="${{ secrets.DOCKER_USERNAME }}/kali-study-lab"
-            RUN_TAG="${IMAGE_TAG}: run-${{ github.run_id }}"
+            RUN_TAG="${IMAGE_TAG}:run-${{ github.run_id }}"
             LATEST_TAG="${IMAGE_TAG}:latest"
+            
             echo "Exporting flat filesystem (Squashing layers)..."
             docker export my-kali-container > state.tar
+            
             echo "Rebuilding un-bloated image..."
-            cat <<< 'EOF' > Dockerfile.squash
+            cat << 'EOF' > Dockerfile.squash
           FROM scratch
           ADD state.tar /
           ENV DEBIAN_FRONTEND=noninteractive
           EXPOSE 3389
           ENTRYPOINT ["/entrypoint.sh"]
           EOF
+            
             docker build -f Dockerfile.squash -t $RUN_TAG .
             docker tag $RUN_TAG $LATEST_TAG
             docker push $RUN_TAG
