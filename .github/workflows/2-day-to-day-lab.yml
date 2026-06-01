@@ -1,5 +1,4 @@
 name: 2. Launch Kali Remote Lab
-
 on:
   workflow_dispatch:
     inputs:
@@ -8,7 +7,7 @@ on:
         required: true
         default: '2'
         type: choice
-        options: [ '1', '2', '3', '4', '5' ] # Capped at 5 to allow 1 hour for safe teardown
+        options: ['1', '2', '3', '4', '5']
 
 jobs:
   run-lab:
@@ -17,10 +16,8 @@ jobs:
     steps:
       - name: Maximize Runner Storage
         run: |
-          echo "Purging unnecessary host environments to maximize Docker storage..."
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           sudo apt-get clean
-          df -h
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -29,23 +26,28 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Pull Latest Saved State
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/kali-study-lab:latest
+
+      - name: Optimize Host Network Stack
         run: |
-          docker pull ${{ secrets.DOCKER_USERNAME }}/kali-study-lab:latest
+          # Force aggressive TCP window scaling on the host runner
+          sudo sysctl -w net.ipv4.tcp_window_scaling=1
 
       - name: Initialize VM-Parity Container
         run: |
-          # FUSE added, AppArmor unconfined, and cgroup mapped for deep systemd integration
           docker run -d \
             --name my-kali-container \
             --privileged \
             --network host \
+            --cgroupns host \
             --pid host \
             --ipc host \
-            --cgroupns host \
-            --shm-size=4g \
             --device /dev/fuse \
-            --security-opt apparmor:unconfined \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            --shm-size=4g \
+            --security-opt apparmor:unconfined \
+            --sysctl net.ipv6.conf.all.disable_ipv6=1 \
+            --ulimit nofile=100000:100000 \
             -e TAILSCALE_AUTHKEY=${{ secrets.TAILSCALE_AUTHKEY }} \
             -e ROOT_PASSWORD=${{ secrets.KALI_ROOT_PASSWORD }} \
             ${{ secrets.DOCKER_USERNAME }}/kali-study-lab:latest
@@ -53,27 +55,19 @@ jobs:
       - name: Telemetry Loop & Auto-Save Monitor
         run: |
           HOURS=${{ inputs.lab_duration_hours }}
-          # Exact seconds calculation without subtracting 15m, because the 5-hour max gives us an hour buffer
-          MAX_SECONDS=$(( HOURS * 3600 )) 
+          MAX_SECONDS=$((HOURS * 3600))
           START_TIME=$(date +%s)
-          
-          echo "Lab initiated. Connect via RDP as 'root'."
-          echo "Maximum duration set to: ${HOURS} hours."
-          
           while true; do
             CURRENT_TIME=$(date +%s)
             ELAPSED=$((CURRENT_TIME - START_TIME))
-            
             if [ "$ELAPSED" -ge "$MAX_SECONDS" ]; then
               echo "Timeout reached. Initiating auto-save."
               break
             fi
-            
             if docker exec my-kali-container test -f /root/Desktop/close.txt; then
-              echo "Signal file 'close.txt' detected. Initiating teardown."
+              echo "Signal file detected. Initiating teardown."
               break
             fi
-            
             sleep 30
           done
 
@@ -81,36 +75,23 @@ jobs:
         if: always()
         run: |
           if docker ps -a --format '{{.Names}}' | grep -q '^my-kali-container$'; then
-            echo "Cleaning signal file..."
             docker exec my-kali-container rm -f /root/Desktop/close.txt || true
-            
-            echo "Initiating graceful systemd shutdown..."
-            # systemd requires time to flush disk I/O cleanly
             docker stop -t 45 my-kali-container || true
-            
             IMAGE_TAG="${{ secrets.DOCKER_USERNAME }}/kali-study-lab"
-            RUN_TAG="${IMAGE_TAG}:run-${{ github.run_id }}"
+            RUN_TAG="${IMAGE_TAG}: run-${{ github.run_id }}"
             LATEST_TAG="${IMAGE_TAG}:latest"
-            
             echo "Exporting flat filesystem (Squashing layers)..."
             docker export my-kali-container > state.tar
-            
             echo "Rebuilding un-bloated image..."
-            cat << 'EOF' > Dockerfile.squash
-            FROM scratch
-            ADD state.tar /
-            ENV DEBIAN_FRONTEND=noninteractive
-            EXPOSE 3389
-            ENTRYPOINT ["/entrypoint.sh"]
-            EOF
-            
+            cat <<< 'EOF' > Dockerfile.squash
+          FROM scratch
+          ADD state.tar /
+          ENV DEBIAN_FRONTEND=noninteractive
+          EXPOSE 3389
+          ENTRYPOINT ["/entrypoint.sh"]
+          EOF
             docker build -f Dockerfile.squash -t $RUN_TAG .
             docker tag $RUN_TAG $LATEST_TAG
-            
-            echo "Uploading optimized state to registry..."
             docker push $RUN_TAG
             docker push $LATEST_TAG
-            echo "Squash and push completed successfully."
-          else
-            echo "Container was not found. Skipping persistence."
           fi
