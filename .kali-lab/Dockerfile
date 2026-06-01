@@ -9,8 +9,10 @@ RUN apt-get update && apt-get install -y \
     curl sudo wget dbus-x11 gnupg \
     && apt-get clean
 
-# 2. PURGE DESKTOP BLOAT: Remove heavy power/lock daemons to save CPU cycles
-RUN apt-get purge -y xfce4-power-manager light-locker && apt-get autoremove -y
+# 2. PURGE DESKTOP BLOAT: Disable background power/locker services from autostarting
+RUN rm -f /etc/xdg/autostart/xfce4-power-manager.desktop \
+          /etc/xdg/autostart/light-locker.desktop \
+          /etc/xdg/autostart/xscreensaver.desktop
 
 # 3. Mask unnecessary hardware systemd services to prevent boot hangs in Docker
 # Fix: Force-delete existing lightdm symlink before masking display manager
