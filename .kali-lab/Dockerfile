@@ -14,10 +14,12 @@ RUN apt-get update && apt-get install -y \
 
 
 # 2. Mask unnecessary hardware systemd services to prevent boot hangs in Docker
-RUN systemctl mask dev-mqueue.mount dev-hugepages.mount \
+RUN rm -f /etc/systemd/system/display-manager.service && \
+    systemctl mask dev-mqueue.mount dev-hugepages.mount \
     systemd-remount-fs.service sys-kernel-config.mount \
     sys-kernel-debug.mount sys-fs-fuse-connections.mount \
     display-manager.service graphical.target systemd-logind.service
+
 
 # 3. Install Tailscale
 RUN mkdir -p /usr/share/keyrings && \
