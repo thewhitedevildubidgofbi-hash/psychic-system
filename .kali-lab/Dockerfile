@@ -15,12 +15,13 @@ RUN rm -f /etc/xdg/autostart/xfce4-power-manager.desktop \
           /etc/xdg/autostart/xscreensaver.desktop
 
 # 3. Mask unnecessary hardware systemd services to prevent boot hangs in Docker
-# Fix: Force-delete existing lightdm symlink before masking display manager
 RUN rm -f /etc/systemd/system/display-manager.service && \
     systemctl mask dev-mqueue.mount dev-hugepages.mount \
     systemd-remount-fs.service sys-kernel-config.mount \
     sys-kernel-debug.mount sys-fs-fuse-connections.mount \
-    display-manager.service graphical.target systemd-logind.service
+    display-manager.service graphical.target systemd-logind.service && \
+    systemctl set-default multi-user.target
+
 
 # 4. LOW-LATENCY XRDP NETWORK TUNING (Strips encryption overhead & buffering lag)
 RUN sed -i 's/crypt_level=high/crypt_level=low/g' /etc/xrdp/xrdp.ini && \
