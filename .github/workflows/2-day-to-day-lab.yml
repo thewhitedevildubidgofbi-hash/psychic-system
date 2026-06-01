@@ -52,6 +52,19 @@ jobs:
             -e ROOT_PASSWORD=${{ secrets.KALI_ROOT_PASSWORD }} \
             ${{ secrets.DOCKER_USERNAME }}/kali-study-lab:latest
 
+
+      - name: Debug Systemd & Tailscale
+        run: |
+          # Allow systemd time to process the boot sequence
+          sleep 10
+          echo "--- LAB INIT SERVICE STATUS ---"
+          docker exec my-kali-container systemctl status lab-init.service || true
+          echo "--- TAILSCALE DAEMON STATUS ---"
+          docker exec my-kali-container systemctl status tailscaled || true
+          echo "--- ENVIRONMENT VARIABLE CHECK ---"
+          docker exec my-kali-container cat /etc/lab-environment || true
+
+
       - name: Verify Container Integrity & Dump Logs
         run: |
           sleep 5
